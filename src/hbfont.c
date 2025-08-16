@@ -491,7 +491,25 @@ hbfont_shape (Lisp_Object lgstring, Lisp_Object direction)
   if (!hb_font)
     return make_fixnum (0);
 
-  hb_bool_t success = hb_shape_full (hb_font, hb_buffer, NULL, 0, NULL);
+
+  static hb_feature_t features[] = {
+    {HB_TAG('z','e','r','o'), 1, 0, -1},  // Standard ligatures
+    {HB_TAG('c','a','l','t'), 1, 0, -1},  // Contextual ligatures
+    {HB_TAG('s','s','1','9'), 1, 0, -1},  // Stylistic set 19
+
+};
+printf("Enabling ligatures for JetBrains Mono\n");
+for (int i = 0; i < 3; i++) {
+    char tag_str[5];
+    hb_tag_to_string(features[i].tag, tag_str);
+    tag_str[4] = '\0';
+    fprintf(stderr, "Feature %d: %s (value=%u, start=%u, end=%d)\n",
+            i, tag_str, features[i].value, features[i].start, features[i].end);
+}
+  hb_bool_t success = hb_shape_full (hb_font, hb_buffer, features, 3, NULL);
+  fprintf(stderr, "hb_shape_full returned: %s\n", success ? "SUCCESS" : "FAILED");
+
+
   if (font->driver->end_hb_font)
     font->driver->end_hb_font (font, hb_font);
   if (!success)
