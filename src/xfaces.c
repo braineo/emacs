@@ -1804,6 +1804,7 @@ the WIDTH times as wide as FACE on FRAME.  */)
 #define LFACE_INHERIT(LFACE)	    AREF (LFACE, LFACE_INHERIT_INDEX)
 #define LFACE_FONTSET(LFACE)	    AREF (LFACE, LFACE_FONTSET_INDEX)
 #define LFACE_EXTEND(LFACE)	    AREF (LFACE, LFACE_EXTEND_INDEX)
+#define LFACE_FONT_FEATURES(LFACE)  AREF (LFACE, LFACE_FONT_FEATURES_INDEX)
 #define LFACE_DISTANT_FOREGROUND(LFACE) \
   AREF (LFACE, LFACE_DISTANT_FOREGROUND_INDEX)
 
@@ -1914,6 +1915,11 @@ check_lface_attrs (Lisp_Object attrs[LFACE_VECTOR_SIZE])
 	   || STRINGP (attrs[LFACE_FONTSET_INDEX])
 	   || RESET_P (attrs[LFACE_FONTSET_INDEX])
 	   || NILP (attrs[LFACE_FONTSET_INDEX]));
+  eassert (UNSPECIFIEDP (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || IGNORE_DEFFACE_P (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || RESET_P (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || NILP (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || CONSP (attrs[LFACE_FONT_FEATURES_INDEX]));
 #endif
 }
 
@@ -2162,7 +2168,7 @@ lface_fully_specified_p (Lisp_Object attrs[LFACE_VECTOR_SIZE])
 
   for (i = 1; i < LFACE_VECTOR_SIZE; ++i)
     if (i != LFACE_FONT_INDEX && i != LFACE_INHERIT_INDEX
-        && i != LFACE_DISTANT_FOREGROUND_INDEX)
+        && i != LFACE_DISTANT_FOREGROUND_INDEX && i != LFACE_FONT_FEATURES_INDEX)
       if ((UNSPECIFIEDP (attrs[i]) || IGNORE_DEFFACE_P (attrs[i])))
 	break;
 
@@ -2917,6 +2923,13 @@ merge_face_ref (struct window *w,
 		  else
 		    err = true;
 		}
+	      else if (EQ (keyword, QCfont_features))
+		{
+		  if (NILP (value) || CONSP (value))
+		    to[LFACE_FONT_FEATURES_INDEX] = value;
+		  else
+		    err = true;
+		}
 	      else
 		err = true;
 
@@ -3645,6 +3658,32 @@ FRAME 0 means change the face on all frames, and change the default
 	}
 #endif /* HAVE_WINDOW_SYSTEM */
     }
+  else if (EQ (attr, QCfont_features))
+    {
+      if (!UNSPECIFIEDP (value)
+	  && !IGNORE_DEFFACE_P (value)
+	  && !RESET_P (value))
+	{
+	  /* Validate font features list format:
+	     Should be a list of (feature . value) pairs */
+	  if (!NILP (value))
+	    {
+	      Lisp_Object tail;
+	      for (tail = value; CONSP (tail); tail = XCDR (tail))
+		{
+		  Lisp_Object feature_spec = XCAR (tail);
+		  if (!CONSP (feature_spec)
+		      || !SYMBOLP (XCAR (feature_spec))
+		      || !FIXNUMP (XCDR (feature_spec)))
+		    signal_error ("Invalid font features format", value);
+		}
+	      if (!NILP (tail))
+		signal_error ("Invalid font features format", value);
+	    }
+	}
+      old_value = LFACE_FONT_FEATURES (lface);
+      ASET (lface, LFACE_FONT_FEATURES_INDEX, value);
+    }
   else if (EQ (attr, QCinherit))
     {
       Lisp_Object tail;
@@ -4213,6 +4252,8 @@ frames).  If FRAME is omitted or nil, use the selected frame.  */)
     value = LFACE_FONT (lface);
   else if (EQ (keyword, QCfontset))
     value = LFACE_FONTSET (lface);
+  else if (EQ (keyword, QCfont_features))
+    value = LFACE_FONT_FEATURES (lface);
   else
     signal_error ("Invalid face attribute name", keyword);
 
@@ -7366,6 +7407,7 @@ init_xfaces (void)
   face_attr_sym[LFACE_FONTSET_INDEX] = QCfontset;
   face_attr_sym[LFACE_DISTANT_FOREGROUND_INDEX] = QCdistant_foreground;
   face_attr_sym[LFACE_EXTEND_INDEX] = QCextend;
+  face_attr_sym[LFACE_FONT_FEATURES_INDEX] = QCfont_features;
 }
 
 void
@@ -7397,6 +7439,7 @@ syms_of_xfaces (void)
   DEFSYM (QCwidth, ":width");
   DEFSYM (QCfont, ":font");
   DEFSYM (QCfontset, ":fontset");
+  DEFSYM (QCfont_features, ":font-features");
   DEFSYM (QCdistant_foreground, ":distant-foreground");
   DEFSYM (QCbold, ":bold");
   DEFSYM (QCitalic, ":italic");
