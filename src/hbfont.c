@@ -239,6 +239,41 @@ hbfont_otf_capability (struct font *font)
 
 /* Support functions for HarfBuzz shaper.  */
 
+/* Convert Lisp font features to HarfBuzz features.
+   FEATURES is a list of (feature . value) pairs.
+   Returns the number of features converted, fills HBFEATURES array.
+   Caller must ensure HBFEATURES has enough space. */
+static int
+hb_features_from_lisp (Lisp_Object features, hb_feature_t *hbfeatures, int max_features)
+{
+  int count = 0;
+
+  for (Lisp_Object tail = features; CONSP (tail) && count < max_features; tail = XCDR (tail))
+    {
+      Lisp_Object feature_spec = XCAR (tail);
+      if (CONSP (feature_spec))
+        {
+          Lisp_Object feature_sym = XCAR (feature_spec);
+          Lisp_Object feature_val = XCDR (feature_spec);
+
+          if (SYMBOLP (feature_sym) && FIXNUMP (feature_val))
+            {
+              /* Convert symbol to HarfBuzz tag */
+              const char *feature_name = SSDATA (SYMBOL_NAME (feature_sym));
+              hb_tag_t tag = hb_tag_from_string (feature_name, -1);
+
+              hbfeatures[count].tag = tag;
+              hbfeatures[count].value = XFIXNUM (feature_val);
+              hbfeatures[count].start = 0;
+              hbfeatures[count].end = (unsigned int) -1;
+              count++;
+            }
+        }
+    }
+
+  return count;
+}
+
 static bool combining_class_loaded = false;
 static Lisp_Object canonical_combining_class_table;
 
@@ -492,22 +527,17 @@ hbfont_shape (Lisp_Object lgstring, Lisp_Object direction)
     return make_fixnum (0);
 
 
-  static hb_feature_t features[] = {
-    {HB_TAG('z','e','r','o'), 1, 0, -1},  // Standard ligatures
-    {HB_TAG('c','a','l','t'), 1, 0, -1},  // Contextual ligatures
-    {HB_TAG('s','s','1','9'), 1, 0, -1},  // Stylistic set 19
+  /* Get font features from the font object */
+  Lisp_Object font_features = Ffont_get (LGSTRING_FONT (lgstring), QCfont_features);
+  static hb_feature_t features[32];  /* Cache features array, reasonable max size */
+  int num_features = 0;
 
-};
-printf("Enabling ligatures for JetBrains Mono\n");
-for (int i = 0; i < 3; i++) {
-    char tag_str[5];
-    hb_tag_to_string(features[i].tag, tag_str);
-    tag_str[4] = '\0';
-    fprintf(stderr, "Feature %d: %s (value=%u, start=%u, end=%d)\n",
-            i, tag_str, features[i].value, features[i].start, features[i].end);
-}
-  hb_bool_t success = hb_shape_full (hb_font, hb_buffer, features, 3, NULL);
-  fprintf(stderr, "hb_shape_full returned: %s\n", success ? "SUCCESS" : "FAILED");
+  if (!NILP (font_features))
+    {
+      num_features = hb_features_from_lisp (font_features, features, 32);
+    }
+
+  hb_bool_t success = hb_shape_full (hb_font, hb_buffer, features, num_features, NULL);
 
 
   if (font->driver->end_hb_font)
