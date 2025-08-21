@@ -4580,7 +4580,7 @@ lface_hash (Lisp_Object *v)
 	  ^ XHASH (v[LFACE_WEIGHT_INDEX])
 	  ^ XHASH (v[LFACE_SLANT_INDEX])
 	  ^ XHASH (v[LFACE_SWIDTH_INDEX])
-	  ^ XHASH (v[LFACE_HEIGHT_INDEX]));
+	  ^ XHASH (v[LFACE_FONT_FEATURES_INDEX]));
 }
 
 #ifdef HAVE_WINDOW_SYSTEM
@@ -4604,6 +4604,7 @@ lface_same_font_attributes_p (Lisp_Object *lface1, Lisp_Object *lface2)
 	  && EQ (lface1[LFACE_WEIGHT_INDEX], lface2[LFACE_WEIGHT_INDEX])
 	  && EQ (lface1[LFACE_SLANT_INDEX], lface2[LFACE_SLANT_INDEX])
 	  && EQ (lface1[LFACE_FONT_INDEX], lface2[LFACE_FONT_INDEX])
+	  && EQ (lface1[LFACE_FONT_FEATURES_INDEX], lface2[LFACE_FONT_FEATURES_INDEX])
 	  && (EQ (lface1[LFACE_FONTSET_INDEX], lface2[LFACE_FONTSET_INDEX])
 	      || (STRINGP (lface1[LFACE_FONTSET_INDEX])
 		  && STRINGP (lface2[LFACE_FONTSET_INDEX])
