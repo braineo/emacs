@@ -1705,9 +1705,9 @@ enum lface_attribute_index
   LFACE_FONTSET_INDEX,
   LFACE_DISTANT_FOREGROUND_INDEX,
   LFACE_EXTEND_INDEX,
+  LFACE_FONT_FEATURES_INDEX,
   LFACE_VECTOR_SIZE
 };
-
 
 /* Box types of faces.  */
 

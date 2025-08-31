@@ -239,6 +239,49 @@ hbfont_otf_capability (struct font *font)
 
 /* Support functions for HarfBuzz shaper.  */
 
+/* Convert Lisp font features to HarfBuzz features.
+   FEATURES is a list of (feature . value) pairs.
+   Returns the number of features converted, fills HB_FEATURES array.
+   HB_FEATURES_SIZE is the current size of HB_FEATURES array. The
+   function allocate more depends on size of FEATURES.  */
+static ptrdiff_t
+hb_features_from_lisp (Lisp_Object features,
+		       hb_feature_t **hb_features,
+		       ptrdiff_t *hb_features_size)
+{
+  ptrdiff_t count = 0;
+
+  for (Lisp_Object tail = features; CONSP (tail); tail = XCDR (tail))
+    {
+      Lisp_Object feature_spec = XCAR (tail);
+      if (CONSP (feature_spec))
+	{
+	  if (count >= *hb_features_size)
+	    *hb_features = xpalloc (*hb_features, hb_features_size,
+				    count - *hb_features_size + 1, -1,
+				    sizeof **hb_features);
+
+	  Lisp_Object feature_sym = XCAR (feature_spec);
+	  Lisp_Object feature_val = XCDR (feature_spec);
+
+	  if (SYMBOLP (feature_sym) && FIXNUMP (feature_val))
+	    {
+	      /* Convert symbol to HarfBuzz tag.  */
+	      const char *feature_name
+		= SSDATA (SYMBOL_NAME (feature_sym));
+	      hb_tag_t tag = hb_tag_from_string (feature_name, -1);
+
+	      (*hb_features)[count].tag = tag;
+	      (*hb_features)[count].value = XFIXNUM (feature_val);
+	      (*hb_features)[count].start = 0;
+	      (*hb_features)[count].end = (unsigned int) -1;
+	      count++;
+	    }
+	}
+    }
+  return count;
+}
+
 static bool combining_class_loaded = false;
 static Lisp_Object canonical_combining_class_table;
 
@@ -491,7 +534,22 @@ hbfont_shape (Lisp_Object lgstring, Lisp_Object direction)
   if (!hb_font)
     return make_fixnum (0);
 
-  hb_bool_t success = hb_shape_full (hb_font, hb_buffer, NULL, 0, NULL);
+  /* Get font features from the font object.  */
+  Lisp_Object font_features
+    = Ffont_get (LGSTRING_FONT (lgstring), QCfont_features);
+
+  /* Cache features array to store enabled font features.  */
+  static hb_feature_t *hb_features;
+  static ptrdiff_t hb_features_size;
+  unsigned int num_features = 0;
+  if (!NILP (font_features))
+    num_features = hb_features_from_lisp (font_features, &hb_features,
+					  &hb_features_size);
+  hb_bool_t success
+    = hb_shape_full (hb_font, hb_buffer,
+		     num_features == 0 ? NULL : hb_features,
+		     num_features, NULL);
+
   if (font->driver->end_hb_font)
     font->driver->end_hb_font (font, hb_font);
   if (!success)

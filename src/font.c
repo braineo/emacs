@@ -3482,6 +3482,12 @@ font_load_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec)
     {
       name = Ffont_get (spec, QCuser_spec);
       if (STRINGP (name)) font_put_extra (entity, QCuser_spec, name);
+
+      /* Store font features from face attributes for use during
+       * shaping.  */
+      Lisp_Object font_features = attrs[LFACE_FONT_FEATURES_INDEX];
+      if (CONSP (font_features))
+	font_put_extra (entity, QCfont_features, font_features);
     }
   return entity;
 }

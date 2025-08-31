@@ -2917,6 +2917,16 @@ final character in a buffer, and if the buffer ends with a newline
 character, point can be placed on what is seemingly a line at the end
 of the buffer---but Emacs can't highlight that ``line'', because it
 doesn't really exist.
+
+@item :font-features
+Font features to turn on or off.  Its value is an association list of
+open type tag and the tag value pairs in the following form:
+
+@example
+((@code{zero} . @var{1}) (@code{ss01} . @var{0}))
+@end example
+
+The attribute is only effective when using @code{harfbuzz} font backend.
 @end table
 
 @defun font-family-list &optional frame
