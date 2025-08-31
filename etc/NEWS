@@ -89,6 +89,13 @@ can now be set to a cons cell to specify spacing both above and below
 the line, which allows for vertically centering text.
 
 +++
+** New face option ':font-features'.
+Emacs now supports enable or disable font features when using harfbuzz
+font backend with an alist.
+
+'(set-face-attribute 'default nil :font "Font name" :height 85
+  :font-features '((zero . 1) (ss19 . 1) (cv01 . 0) ))'
+
 ** 'prettify-symbols-mode' attempts to ignore undisplayable characters.
 Previously, such characters would be rendered as, e.g., white boxes.
 

@@ -1810,6 +1810,8 @@ the WIDTH times as wide as FACE on FRAME.  */)
 #define LFACE_INHERIT(LFACE)	    AREF (LFACE, LFACE_INHERIT_INDEX)
 #define LFACE_FONTSET(LFACE)	    AREF (LFACE, LFACE_FONTSET_INDEX)
 #define LFACE_EXTEND(LFACE)	    AREF (LFACE, LFACE_EXTEND_INDEX)
+#define LFACE_FONT_FEATURES(LFACE) \
+  AREF (LFACE, LFACE_FONT_FEATURES_INDEX)
 #define LFACE_DISTANT_FOREGROUND(LFACE) \
   AREF (LFACE, LFACE_DISTANT_FOREGROUND_INDEX)
 
@@ -1920,6 +1922,11 @@ check_lface_attrs (Lisp_Object attrs[LFACE_VECTOR_SIZE])
 	   || STRINGP (attrs[LFACE_FONTSET_INDEX])
 	   || RESET_P (attrs[LFACE_FONTSET_INDEX])
 	   || NILP (attrs[LFACE_FONTSET_INDEX]));
+  eassert (UNSPECIFIEDP (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || IGNORE_DEFFACE_P (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || RESET_P (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || NILP (attrs[LFACE_FONT_FEATURES_INDEX])
+	   || CONSP (attrs[LFACE_FONT_FEATURES_INDEX]));
 #endif
 }
 
@@ -2174,7 +2181,8 @@ lface_fully_specified_p (Lisp_Object attrs[LFACE_VECTOR_SIZE])
 
   for (i = 1; i < LFACE_VECTOR_SIZE; ++i)
     if (i != LFACE_FONT_INDEX && i != LFACE_INHERIT_INDEX
-        && i != LFACE_DISTANT_FOREGROUND_INDEX)
+	&& i != LFACE_DISTANT_FOREGROUND_INDEX
+	&& i != LFACE_FONT_FEATURES_INDEX)
       if ((UNSPECIFIEDP (attrs[i]) || IGNORE_DEFFACE_P (attrs[i])))
 	break;
 
@@ -2284,6 +2292,60 @@ merge_face_heights (Lisp_Object from, Lisp_Object to, Lisp_Object invalid)
   return result;
 }
 
+/* Merges the face font features FROM with the face font features TO,
+   and returns the merged font features.  */
+
+static Lisp_Object
+merge_face_font_features (Lisp_Object from, Lisp_Object to)
+{
+  if (CONSP (from))
+    {
+      if (NILP (to) || UNSPECIFIEDP (to))
+	to = Qnil;
+      else
+	/* Copy to before merging so that comparsion can know it is a
+       different attribute.  */
+	to = Fcopy_alist (to);
+
+      Lisp_Object tail = to;
+      while (CONSP (tail) && !NILP (XCDR (tail)))
+	tail = XCDR (tail);
+
+      for (Lisp_Object from_tail = from; !NILP (from_tail);
+	   from_tail = XCDR (from_tail))
+	{
+	  Lisp_Object font_feature = XCAR (from_tail);
+
+	  if (CONSP (font_feature))
+	    {
+	      Lisp_Object feature_sym = XCAR (font_feature);
+	      Lisp_Object feature_val = XCDR (font_feature);
+
+	      if (NILP (tail))
+		{
+		  /* Construct TAIL to a list and let TO point to the
+		   * start of the list.  */
+		  tail = Fcons (font_feature, Qnil);
+		  to = tail;
+		  continue;
+		}
+	      Lisp_Object exising_feature = Fassq (feature_sym, to);
+
+	      if (CONSP (exising_feature))
+		/* If TO already contains the feature, update the
+		 * value.  */
+		XSETCDR (exising_feature, feature_val);
+	      else
+		{
+		  XSETCDR (tail, Fcons (font_feature, Qnil));
+		  tail = XCDR (tail);
+		}
+	    }
+	}
+    }
+
+  return to;
+}
 
 /* Merge two Lisp face attribute vectors on frame F, FROM and TO, and
    store the resulting attributes in TO, which must be already be
@@ -2330,6 +2392,10 @@ merge_face_vectors (struct window *w,
 	    to[i] = merge_face_heights (from[i], to[i], to[i]);
 	    font_clear_prop (to, FONT_SIZE_INDEX);
 	  }
+	else if (i == LFACE_FONT_FEATURES_INDEX
+		 && !EQ (to[i], from[i]))
+	  to[i] = merge_face_font_features (from[i], to[i]);
+
 	else if (i != LFACE_FONT_INDEX && ! EQ (to[i], from[i]))
 	  {
 	    to[i] = from[i];
@@ -2982,6 +3048,15 @@ merge_face_ref (struct window *w,
 		{
 		  if (EQ (value, Qt) || NILP (value))
 		    to[LFACE_EXTEND_INDEX] = value;
+		  else
+		    err = true;
+		}
+	      else if (EQ (keyword, QCfont_features))
+		{
+		  if (NILP (value) || CONSP (value))
+		    to[LFACE_FONT_FEATURES_INDEX]
+		      = merge_face_font_features (
+			value, to[LFACE_FONT_FEATURES_INDEX]);
 		  else
 		    err = true;
 		}
@@ -3713,6 +3788,38 @@ FRAME 0 means change the face on all frames, and change the default
 	}
 #endif /* HAVE_WINDOW_SYSTEM */
     }
+  else if (EQ (attr, QCfont_features))
+    {
+      if (!UNSPECIFIEDP (value) && !IGNORE_DEFFACE_P (value)
+	  && !RESET_P (value))
+	{
+	  /* Validate font features list format: Should be a list of
+	     (feature . value) pairs, without deplicate feature  */
+	  if (!NILP (value))
+	    {
+	      Lisp_Object tail;
+	      Lisp_Object seen = Qnil;
+	      for (tail = value; CONSP (tail); tail = XCDR (tail))
+		{
+		  Lisp_Object feature_spec = XCAR (tail);
+		  if (!CONSP (feature_spec)
+		      || !SYMBOLP (XCAR (feature_spec))
+		      || !FIXNUMP (XCDR (feature_spec)))
+		    signal_error ("Invalid font features format",
+				  value);
+		  Lisp_Object feature_sym = XCAR (feature_spec);
+		  if (!NILP (Fmemq (feature_sym, seen)))
+		    signal_error ("Duplicate font feature tag",
+				  feature_sym);
+		  seen = Fcons (feature_sym, seen);
+		}
+	      if (!NILP (tail))
+		signal_error ("Invalid font features format", value);
+	    }
+	}
+      old_value = LFACE_FONT_FEATURES (lface);
+      ASET (lface, LFACE_FONT_FEATURES_INDEX, value);
+    }
   else if (EQ (attr, QCinherit))
     {
       Lisp_Object tail;
@@ -4282,6 +4389,8 @@ frames).  If FRAME is omitted or nil, use the selected frame.  */)
     value = LFACE_FONT (lface);
   else if (EQ (keyword, QCfontset))
     value = LFACE_FONTSET (lface);
+  else if (EQ (keyword, QCfont_features))
+    value = LFACE_FONT_FEATURES (lface);
   else
     signal_error ("Invalid face attribute name", keyword);
 
@@ -4608,7 +4717,7 @@ lface_hash (Lisp_Object *v)
 	  ^ XHASH (v[LFACE_WEIGHT_INDEX])
 	  ^ XHASH (v[LFACE_SLANT_INDEX])
 	  ^ XHASH (v[LFACE_SWIDTH_INDEX])
-	  ^ XHASH (v[LFACE_HEIGHT_INDEX]));
+	  ^ XHASH (v[LFACE_FONT_FEATURES_INDEX]));
 }
 
 #ifdef HAVE_WINDOW_SYSTEM
@@ -4632,6 +4741,7 @@ lface_same_font_attributes_p (Lisp_Object *lface1, Lisp_Object *lface2)
 	  && EQ (lface1[LFACE_WEIGHT_INDEX], lface2[LFACE_WEIGHT_INDEX])
 	  && EQ (lface1[LFACE_SLANT_INDEX], lface2[LFACE_SLANT_INDEX])
 	  && EQ (lface1[LFACE_FONT_INDEX], lface2[LFACE_FONT_INDEX])
+	  && EQ (lface1[LFACE_FONT_FEATURES_INDEX], lface2[LFACE_FONT_FEATURES_INDEX])
 	  && (EQ (lface1[LFACE_FONTSET_INDEX], lface2[LFACE_FONTSET_INDEX])
 	      || (STRINGP (lface1[LFACE_FONTSET_INDEX])
 		  && STRINGP (lface2[LFACE_FONTSET_INDEX])
@@ -7433,6 +7543,7 @@ init_xfaces (void)
   face_attr_sym[LFACE_FONTSET_INDEX] = QCfontset;
   face_attr_sym[LFACE_DISTANT_FOREGROUND_INDEX] = QCdistant_foreground;
   face_attr_sym[LFACE_EXTEND_INDEX] = QCextend;
+  face_attr_sym[LFACE_FONT_FEATURES_INDEX] = QCfont_features;
 }
 
 void
@@ -7464,6 +7575,7 @@ syms_of_xfaces (void)
   DEFSYM (QCwidth, ":width");
   DEFSYM (QCfont, ":font");
   DEFSYM (QCfontset, ":fontset");
+  DEFSYM (QCfont_features, ":font-features");
   DEFSYM (QCdistant_foreground, ":distant-foreground");
   DEFSYM (QCbold, ":bold");
   DEFSYM (QCitalic, ":italic");
