@@ -278,7 +278,8 @@ font_build_object (int vectorsize, Lisp_Object type,
 #endif /* HAVE_XFT || HAVE_FREETYPE || HAVE_NS */
 
 static int font_pixel_size (struct frame *f, Lisp_Object);
-static Lisp_Object font_open_entity (struct frame *, Lisp_Object, int);
+static Lisp_Object font_open_entity (struct frame *, Lisp_Object, int,
+				     Lisp_Object);
 static Lisp_Object font_matching_entity (struct frame *, Lisp_Object *,
                                          Lisp_Object);
 static unsigned font_encode_char (Lisp_Object, int);
@@ -2928,11 +2929,46 @@ font_matching_entity (struct frame *f, Lisp_Object *attrs, Lisp_Object spec)
 }
 
 
-/* Open a font of ENTITY and PIXEL_SIZE on frame F, and return the
-   opened font object.  */
+/* Return the font features specified by the face attributes ATTRS,
+   in the canonical form produced by merge_face_font_features, or nil
+   if ATTRS specifies none.  */
 
 static Lisp_Object
-font_open_entity (struct frame *f, Lisp_Object entity, int pixel_size)
+lface_font_features (Lisp_Object *attrs)
+{
+  Lisp_Object features = attrs[LFACE_FONT_FEATURES_INDEX];
+  return CONSP (features) ? merge_face_font_features (features, Qnil) : Qnil;
+}
+
+/* Return the font features FONT_OBJECT was opened with.  */
+
+static Lisp_Object
+font_object_features (Lisp_Object font_object)
+{
+  Lisp_Object slot = assq_no_quit (QCfont_features,
+				   AREF (font_object, FONT_EXTRA_INDEX));
+  return CONSP (slot) ? XCDR (slot) : Qnil;
+}
+
+/* Return true if FONT_OBJECT was opened with the font features
+   specified by the face attributes ATTRS.  */
+
+bool
+font_has_lface_features (Lisp_Object font_object, Lisp_Object *attrs)
+{
+  return ! NILP (Fequal (font_object_features (font_object),
+			 lface_font_features (attrs)));
+}
+
+/* Open a font of ENTITY and PIXEL_SIZE on frame F, and return the
+   opened font object.  FEATURES is the list of font features to use
+   when shaping text with the font, in the form returned by
+   lface_font_features.  Fonts opened with different features are
+   different font objects, because the glyphs they produce differ.  */
+
+static Lisp_Object
+font_open_entity (struct frame *f, Lisp_Object entity, int pixel_size,
+		  Lisp_Object features)
 {
   struct font_driver_list *driver_list;
   Lisp_Object objlist, size, val, font_object;
@@ -2956,7 +2992,8 @@ font_open_entity (struct frame *f, Lisp_Object entity, int pixel_size)
     {
       Lisp_Object fn = XCAR (objlist);
       if (! NILP (AREF (fn, FONT_TYPE_INDEX))
-          && XFONT_OBJECT (fn)->pixel_size == pixel_size)
+          && XFONT_OBJECT (fn)->pixel_size == pixel_size
+	  && ! NILP (Fequal (font_object_features (fn), features)))
         {
           if (driver_list->driver->cached_font_ok == NULL
               || driver_list->driver->cached_font_ok (f, fn, entity))
@@ -2979,6 +3016,8 @@ font_open_entity (struct frame *f, Lisp_Object entity, int pixel_size)
 	return Qnil;
     }
   ASET (font_object, FONT_SIZE_INDEX, make_fixnum (pixel_size));
+  if (! NILP (features))
+    font_put_extra (font_object, QCfont_features, features);
   FONT_ADD_LOG ("open", entity, font_object);
   ASET (entity, FONT_OBJLIST_INDEX,
 	Fcons (font_object, AREF (entity, FONT_OBJLIST_INDEX)));
@@ -3424,7 +3463,7 @@ font_open_for_lface (struct frame *f, Lisp_Object entity, Lisp_Object *attrs, Li
       size *= font_rescale_ratio (entity);
     }
 
-  return font_open_entity (f, entity, size);
+  return font_open_entity (f, entity, size, lface_font_features (attrs));
 }
 
 
@@ -5267,7 +5306,7 @@ DEFUN ("open-font", Fopen_font, Sopen_font, 1, 3, 0,
       if (isize == 0)
 	isize = 120;
     }
-  return font_open_entity (f, font_entity, isize);
+  return font_open_entity (f, font_entity, isize, Qnil);
 }
 
 DEFUN ("close-font", Fclose_font, Sclose_font, 1, 2, 0,
@@ -5661,13 +5700,14 @@ If the named font cannot be opened and loaded, return nil.  */)
   else if (FONT_OBJECT_P (name))
     font_object = name;
   else if (FONT_ENTITY_P (name))
-    font_object = font_open_entity (f, name, 0);
+    font_object = font_open_entity (f, name, 0, Qnil);
   else
     {
       struct face *face = FACE_FROM_ID (f, DEFAULT_FACE_ID);
       Lisp_Object entity = font_matching_entity (f, face->lface, name);
 
-      font_object = ! NILP (entity) ? font_open_entity (f, entity, 0) : Qnil;
+      font_object = (! NILP (entity)
+		     ? font_open_entity (f, entity, 0, Qnil) : Qnil);
     }
   if (NILP (font_object))
     return Qnil;

@@ -74,6 +74,71 @@
                                           line-number-current-line))
   (should (internal-lisp-face-equal-p 'line-number
                                       'line-number-current-line t)))
+;; Index of the :font-features attribute in a Lisp face vector.
+(defconst xfaces-tests--font-features-index 20)
+
+(defun xfaces-tests--font-features (face-ref)
+  (aref (face-attributes-as-vector face-ref)
+        xfaces-tests--font-features-index))
+
+(ert-deftest xfaces-font-features-validation ()
+  (let ((face (make-face 'xfaces-tests--font-features)))
+    (dolist (bad '(zero (zero) ((zero . "1")) (("zero" . 1))
+                   ((zero . 1) . ss01) ((zero . 1) (zero . 0))))
+      (should-error (set-face-attribute face nil :font-features bad)))
+    (set-face-attribute face nil :font-features '((zero . 1) (ss01 . 0)))
+    (should (equal (face-attribute face :font-features)
+                   '((zero . 1) (ss01 . 0))))
+    (set-face-attribute face nil :font-features nil)
+    (should (null (face-attribute face :font-features)))))
+
+(ert-deftest xfaces-font-features-merge ()
+  ;; Features earlier in the list override the same features later in
+  ;; the list, other features are kept, and the result is sorted.
+  (should (equal (xfaces-tests--font-features
+                  '((:font-features ((zero . 1)))
+                    (:font-features ((ss01 . 1) (zero . 0)))))
+                 '((ss01 . 1) (zero . 1))))
+  ;; The same features in a different order give an 'equal' result.
+  (should (equal (xfaces-tests--font-features
+                  '(:font-features ((zero . 1) (calt . 0))))
+                 (xfaces-tests--font-features
+                  '(:font-features ((calt . 0) (zero . 1))))))
+  ;; Invalid elements are ignored, and the first of duplicate tags
+  ;; wins, rather than signaling an error during redisplay.
+  (should (equal (xfaces-tests--font-features
+                  '(:font-features ((zero . 1) bogus ("ss01" . 1)
+                                    (zero . 0))))
+                 '((zero . 1))))
+  ;; Merging doesn't modify the merged lists.
+  (let* ((from (list (cons 'zero 1)))
+         (to (list (cons 'zero 0) (cons 'ss01 1)))
+         (from-copy (copy-tree from))
+         (to-copy (copy-tree to)))
+    (xfaces-tests--font-features
+     `((:font-features ,from) (:font-features ,to)))
+    (should (equal from from-copy))
+    (should (equal to to-copy))))
+
+(ert-deftest xfaces-font-features-face-spec ()
+  ;; `defface' and `face-spec-set' must not drop :font-features.
+  (let ((face 'xfaces-tests--font-features-spec))
+    (face-spec-set face '((t :font-features ((zero . 1)))))
+    (should (equal (face-attribute face :font-features) '((zero . 1))))
+    (face-spec-set face '((t :foreground "red")))
+    (should (eq (face-attribute face :font-features) 'unspecified))))
+
+(ert-deftest xfaces-font-features-inherit ()
+  (let ((parent (make-face 'xfaces-tests--font-features-parent))
+        (child (make-face 'xfaces-tests--font-features-child)))
+    (set-face-attribute parent nil :font-features '((zero . 0) (ss01 . 1)))
+    (set-face-attribute child nil :font-features '((zero . 1))
+                        :inherit parent)
+    (should (equal (xfaces-tests--font-features child)
+                   '((ss01 . 1) (zero . 1))))
+    ;; Inheritance doesn't modify the parent's features.
+    (should (equal (face-attribute parent :font-features)
+                   '((zero . 0) (ss01 . 1))))))
 
 (provide 'xfaces-tests)
 

@@ -873,6 +873,7 @@ extern Lisp_Object font_find_for_lface (struct frame *f, Lisp_Object *lface,
 extern Lisp_Object font_open_for_lface (struct frame *f, Lisp_Object entity,
                                         Lisp_Object *lface,
                                         Lisp_Object spec);
+extern bool font_has_lface_features (Lisp_Object, Lisp_Object *);
 extern Lisp_Object font_load_for_lface (struct frame *f, Lisp_Object *lface,
                                         Lisp_Object spec);
 extern void font_prepare_for_face (struct frame *f, struct face *face);

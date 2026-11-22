@@ -1195,7 +1195,7 @@ an integer value."
                         (font-family-list))
 	      ;; Only one font on TTYs.
 	      (list (cons "default" "default"))))
-           (:foundry
+           ((or :foundry :font-features)
 	    (list nil))
 	   (:width
             (mapcar (lambda (x) (cons (symbol-name (aref x 1)) (aref x 1)))
@@ -1259,6 +1259,7 @@ an integer value."
     (:foreground . "foreground color")
     (:background . "background color")
     (:stipple . "background stipple")
+    (:font-features . "font features")
     (:inherit . "inheritance"))
   "An alist of descriptive names for face attributes.
 Each element has the form (ATTRIBUTE-NAME . DESCRIPTION) where
@@ -1323,7 +1324,7 @@ of a global face.  Value is the new attribute value."
     ;; out.  Stipple can be a vector; (WIDTH HEIGHT DATA).  Box can be
     ;; a list `(:width WIDTH :color COLOR)' or `(:width WIDTH :shadow
     ;; SHADOW)'.  Underline can be `(:color COLOR :style STYLE)'.
-    (and (memq attribute '(:box :stipple :underline))
+    (and (memq attribute '(:box :stipple :underline :font-features))
 	 (or (consp old-value)
 	     (vectorp old-value))
 	 (setq old-value (prin1-to-string old-value)))
@@ -1368,6 +1369,10 @@ of a global face.  Value is the new attribute value."
     (and (memq attribute '(:stipple :box :underline))
 	 (stringp new-value)
 	 (string-match-p "^[[(]" new-value)
+	 (setq new-value (read new-value)))
+    ;; Font features are an alist, which we read as a Lisp value.
+    (and (eq attribute :font-features)
+	 (stringp new-value)
 	 (setq new-value (read new-value)))
     new-value))
 
@@ -1659,7 +1664,7 @@ is given, in which case return its value instead."
 	     (append
 	      '(:underline nil :overline nil :strike-through nil
 		:box nil :inverse-video nil :stipple nil :inherit nil
-                :extend nil)
+                :extend nil :font-features nil)
 	      ;; `display-graphic-p' is unavailable when running
 	      ;; temacs, prior to loading frame.el.
 	      (when (fboundp 'display-graphic-p)
@@ -1785,7 +1790,8 @@ FACE-ATTRS is a plist of face attributes in the form of attribute-value
 pairs."
   (let (attrs)
     (while face-attrs
-      (when (assq (car face-attrs) face-x-resources)
+      (when (or (assq (car face-attrs) face-x-resources)
+                (assq (car face-attrs) face-attribute-name-alist))
 	(push (car face-attrs) attrs)
 	(push (cadr face-attrs) attrs))
       (setq face-attrs (cddr face-attrs)))

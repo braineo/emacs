@@ -2290,6 +2290,52 @@ merge_face_heights (Lisp_Object from, Lisp_Object to, Lisp_Object invalid)
   return result;
 }
 
+/* Merge the face font features FROM with the face font features TO,
+   and return the merged font features.  A feature in FROM overrides
+   the feature with the same tag in TO, and features that are only in
+   TO are kept.  Neither FROM nor TO is modified.  Elements that are
+   not (TAG . VALUE) pairs with a symbol TAG are ignored.  The result
+   is sorted by tag, so that the same set of features always yields
+   'equal' lists, whatever the order in which they were specified.
+   If FROM is not a list of features, return TO unchanged.  */
+
+Lisp_Object
+merge_face_font_features (Lisp_Object from, Lisp_Object to)
+{
+  if (!CONSP (from))
+    return to;
+
+  Lisp_Object result = Qnil;
+
+  /* Add the features of FROM first, so that they take precedence over
+     the features of TO with the same tag.  */
+  for (int i = 0; i < 2; i++)
+    {
+      Lisp_Object tail = i == 0 ? from : to;
+      FOR_EACH_TAIL_SAFE (tail)
+	{
+	  Lisp_Object feature = XCAR (tail);
+	  if (!CONSP (feature) || !SYMBOLP (XCAR (feature))
+	      || !NILP (assq_no_quit (XCAR (feature), result)))
+	    continue;
+
+	  /* Insert a copy of FEATURE, keeping RESULT sorted by tag.  */
+	  Lisp_Object prev = Qnil, next = result;
+	  while (CONSP (next)
+		 && !NILP (Fstring_lessp (XCAR (XCAR (next)),
+					  XCAR (feature))))
+	    prev = next, next = XCDR (next);
+	  Lisp_Object cell
+	    = Fcons (Fcons (XCAR (feature), XCDR (feature)), next);
+	  if (NILP (prev))
+	    result = cell;
+	  else
+	    XSETCDR (prev, cell);
+	}
+    }
+
+  return result;
+}
 
 /* Merge two Lisp face attribute vectors on frame F, FROM and TO, and
    store the resulting attributes in TO, which must be already be
@@ -4694,7 +4740,7 @@ lface_hash (Lisp_Object *v)
 	  ^ XHASH (v[LFACE_WEIGHT_INDEX])
 	  ^ XHASH (v[LFACE_SLANT_INDEX])
 	  ^ XHASH (v[LFACE_SWIDTH_INDEX])
-	  ^ XHASH (v[LFACE_FONT_FEATURES_INDEX]));
+	  ^ XHASH (v[LFACE_HEIGHT_INDEX]));
 }
 
 #ifdef HAVE_WINDOW_SYSTEM
@@ -4718,7 +4764,8 @@ lface_same_font_attributes_p (Lisp_Object *lface1, Lisp_Object *lface2)
 	  && EQ (lface1[LFACE_WEIGHT_INDEX], lface2[LFACE_WEIGHT_INDEX])
 	  && EQ (lface1[LFACE_SLANT_INDEX], lface2[LFACE_SLANT_INDEX])
 	  && EQ (lface1[LFACE_FONT_INDEX], lface2[LFACE_FONT_INDEX])
-	  && EQ (lface1[LFACE_FONT_FEATURES_INDEX], lface2[LFACE_FONT_FEATURES_INDEX])
+	  && face_attr_equal_p (lface1[LFACE_FONT_FEATURES_INDEX],
+				lface2[LFACE_FONT_FEATURES_INDEX])
 	  && (EQ (lface1[LFACE_FONTSET_INDEX], lface2[LFACE_FONTSET_INDEX])
 	      || (STRINGP (lface1[LFACE_FONTSET_INDEX])
 		  && STRINGP (lface2[LFACE_FONTSET_INDEX])
@@ -6416,6 +6463,20 @@ realize_gui_face (struct face_cache *cache, Lisp_Object attrs[LFACE_VECTOR_SIZE]
 	    fontset = default_face->fontset;
 	  if (fontset == -1)
 	    emacs_abort ();
+	}
+      if (FONT_OBJECT_P (attrs[LFACE_FONT_INDEX])
+	  && !font_has_lface_features (attrs[LFACE_FONT_INDEX], attrs))
+	{
+	  /* The font object, typically inherited from another face,
+	     was opened with different font features.  Open the same
+	     font again with the font features of ATTRS.  The font
+	     features are not font selection criteria, so don't let
+	     them into the spec.  */
+	  Lisp_Object spec = copy_font_spec (attrs[LFACE_FONT_INDEX]);
+	  font_put_extra (spec, QCfont_features, Qunbound);
+	  Lisp_Object font_object = font_load_for_lface (f, attrs, spec);
+	  if (FONT_OBJECT_P (font_object))
+	    attrs[LFACE_FONT_INDEX] = font_object;
 	}
       if (! FONT_OBJECT_P (attrs[LFACE_FONT_INDEX]))
 	{
